@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>現場競賽看板</title>
+<link rel="icon" href="data:,">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Noto+Sans+TC:wght@700;900&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --bg: #0d2530;
+        --panel: #143543;
+        --line: rgba(255,255,255,0.08);
+        --gold: #e8a33d;
+        --ink: #f4ede0;
+        --ink-dim: rgba(244,237,224,0.55);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: "Noto Sans TC", sans-serif; overflow: hidden; }
+    .num { font-family: "Oswald", sans-serif; font-weight: 700; }
+
+    #stage { height: 100%; display: flex; flex-direction: column; padding: 24px; }
+    #title { text-align: center; font-size: 1.6rem; font-weight: 900; margin-bottom: 16px; }
+    #title .accent { color: var(--gold); }
+
+    #controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 20px; }
+    #game-select {
+        padding: 10px 18px; border-radius: 30px; border: 1px solid var(--line);
+        background: var(--panel); color: var(--ink); font-family: "Noto Sans TC", sans-serif;
+        font-weight: 700; font-size: 0.95rem; cursor: pointer;
+    }
+    #reset-all-btn {
+        padding: 12px 28px; border-radius: 30px;
+        border: 2px solid var(--gold); background: rgba(232,163,61,0.12); color: var(--gold);
+        font-family: "Noto Sans TC", sans-serif; font-weight: 900; font-size: 1rem; cursor: pointer;
+    }
+    #reset-all-btn:active { background: rgba(232,163,61,0.3); }
+    #reset-all-btn:disabled { opacity: 0.5; cursor: default; }
+
+    #grid { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; }
+    .slot-card {
+        background: var(--panel); border-radius: 18px; border: 1px solid var(--line);
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 20px 14px; position: relative; transition: transform 0.4s ease, box-shadow 0.4s ease;
+    }
+    .slot-card.leading { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(232,163,61,0.5), 0 8px 24px rgba(0,0,0,0.4); transform: scale(1.03); }
+    .slot-label { font-size: 0.95rem; color: var(--ink-dim); margin-bottom: 10px; }
+    .slot-score { font-size: 2.6rem; line-height: 1; color: var(--gold); margin-bottom: 6px; }
+    .slot-score-unit { font-size: 0.85rem; color: var(--ink-dim); margin-bottom: 16px; }
+    .slot-progress-text { font-size: 0.85rem; color: var(--ink-dim); margin-bottom: 8px; }
+    .slot-bar-track { width: 100%; height: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden; }
+    .slot-bar-fill { height: 100%; background: linear-gradient(90deg, #6fae7c, var(--gold)); transition: width 0.6s ease; }
+    .slot-empty { color: var(--ink-dim); font-size: 0.85rem; }
+
+    .slot-card.flash { animation: slotFlash 2s ease; }
+    @keyframes slotFlash {
+        0% { background: rgba(232,163,61,0.35); }
+        15% { background: rgba(232,163,61,0.35); }
+        100% { background: var(--panel); }
+    }
+</style>
+</head>
+<body>
+
+<div id="stage">
+    <div id="title">🏆 <span class="accent">現場競賽</span>看板</div>
+    <div id="controls">
+        <select id="game-select">
+            <option value="fishball">魚丸追追樂</option>
+            <option value="fishmarket">永續魚市拍賣</option>
+            <option value="stoneweir">石滬修復</option>
+        </select>
+        <button id="reset-all-btn">🔄 重置全部，開始新一輪</button>
+    </div>
+    <div id="grid"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* 這個看板跟平台正式資料完全無關，只看 liveCompetition 這個獨立集合，
+   跟平台其他頁面用同一個 Firebase 專案，但是全新開的一份資料表，不會
+   讀到也不會寫到任何玩家帳號/金幣/排行榜資料。
+
+   ── 多款遊戲共用同一份看板的設計 ──
+   文件路徑是 {遊戲代號}_slot{編號}（例如 fishball_slot1），選了哪款遊戲
+   就只監聽那個代號底下的 5 份文件；換遊戲時，先取消上一款遊戲的監聽器，
+   再重新對新代號掛 5 個監聽器，兩款遊戲的資料完全不會混在一起。
+
+   每款遊戲回報的資料格式是通用的：
+     score         — 目前分數（每款遊戲都有，看板一定會顯示）
+     progressLabel — 一段文字說明目前進度（每款遊戲自己決定怎麼寫最合理，
+                     例如 fishball 是「第3/10關」、之後 fishmarket 可以是
+                     「第2季第3輪」，stoneweir 可以是「已撐45秒」）
+     progressPct   — 0~100，選填。遊戲本身沒有明確的「進度百分比」概念
+                     （例如 stoneweir 是連續計時制，沒有一個天然的終點）
+                     可以不寫，看板就不畫進度條，只顯示分數跟文字說明。
+*/
+const app = initializeApp({
+    apiKey: "AIzaSyCkVoePkK_0_yJsDcA_slQVlvZ9KjwxIgU",
+    authDomain: "gamehub-test-cf42d.firebaseapp.com",
+    projectId: "gamehub-test-cf42d",
+    storageBucket: "gamehub-test-cf42d.firebasestorage.app",
+    messagingSenderId: "544673054706",
+    appId: "1:544673054706:web:2500b09a6b4298d981f56b"
+});
+const db = getFirestore(app);
+
+const gridEl = document.getElementById('grid');
+const gameSelectEl = document.getElementById('game-select');
+const resetBtn = document.getElementById('reset-all-btn');
+
+let currentGameId = gameSelectEl.value;
+let unsubscribers = []; // 目前這款遊戲的 5 個 onSnapshot 取消函式
+const slotData = {}; // slot(1~5) -> 最新收到的資料
+
+function buildGrid() {
+    gridEl.innerHTML = '';
+    for (let slot = 1; slot <= 5; slot++) {
+        const card = document.createElement('div');
+        card.className = 'slot-card';
+        card.id = 'slot-' + slot;
+        card.innerHTML = `<div class="slot-label">${slot} 號機</div><div class="slot-empty">尚未開始</div>`;
+        gridEl.appendChild(card);
+    }
+}
+
+function watchGame(gameId) {
+    // 換遊戲前，先把上一款遊戲的監聽器全部取消，不然畫面會同時收到兩款遊戲的更新
+    unsubscribers.forEach(fn => fn());
+    unsubscribers = [];
+    for (const k in slotData) delete slotData[k];
+    buildGrid();
+
+    for (let slot = 1; slot <= 5; slot++) {
+        const unsub = onSnapshot(doc(db, 'liveCompetition', gameId + '_slot' + slot), snap => {
+            const data = snap.exists() ? snap.data() : null;
+            slotData[slot] = data;
+            renderSlot(slot, data);
+            renderLeader();
+        }, err => console.warn('[看板] 監聽 ' + gameId + '_slot' + slot + ' 失敗', err));
+        unsubscribers.push(unsub);
+    }
+}
+
+function renderSlot(slot, data) {
+    const card = document.getElementById('slot-' + slot);
+    if (!data) {
+        card.innerHTML = `<div class="slot-label">${slot} 號機</div><div class="slot-empty">尚未開始</div>`;
+        return;
+    }
+    const barHtml = (typeof data.progressPct === 'number')
+        ? `<div class="slot-bar-track"><div class="slot-bar-fill" style="width:${Math.min(100, data.progressPct)}%;"></div></div>`
+        : '';
+    const prevScore = card.dataset.lastScore ? Number(card.dataset.lastScore) : null;
+    card.innerHTML = `
+        <div class="slot-label">${slot} 號機</div>
+        <div class="slot-score num">${data.score ?? 0}</div>
+        <div class="slot-score-unit">分</div>
+        <div class="slot-progress-text">${data.progressLabel || ''}</div>
+        ${barHtml}
+    `;
+    // 分數比上次高才閃一下，提示大家看過去（第一次收到資料不算，避免看板一開就全部誤閃）
+    if (prevScore !== null && (data.score ?? 0) > prevScore) {
+        card.classList.remove('flash'); void card.offsetWidth;
+        card.classList.add('flash');
+    }
+    card.dataset.lastScore = data.score ?? 0;
+}
+
+// 目前分數最高的那台機器，卡片加金色外框凸顯出來
+function renderLeader() {
+    let leaderSlot = null, maxScore = -1;
+    for (let slot = 1; slot <= 5; slot++) {
+        const d = slotData[slot];
+        const s = d ? (d.score ?? 0) : -1;
+        if (d && s > maxScore) { maxScore = s; leaderSlot = slot; }
+    }
+    for (let slot = 1; slot <= 5; slot++) {
+        document.getElementById('slot-' + slot).classList.toggle('leading', slot === leaderSlot && maxScore > 0);
+    }
+}
+
+gameSelectEl.addEventListener('change', () => {
+    currentGameId = gameSelectEl.value;
+    watchGame(currentGameId);
+});
+
+// 主持人按下「重置全部」：統一把「目前選定遊戲」的 5 台平板進度歸零，
+// 讓所有人在同一個起跑點上開始，不用等每個人各自按開始才各自歸零
+// （那樣有人先按、有人後按，起跑點會不公平）。平板那邊自己按開始時
+// 仍然會再歸零一次，是防呆用的第二道防線，兩邊不衝突。
+resetBtn.addEventListener('click', async () => {
+    if (!confirm('確定要重置「' + gameSelectEl.selectedOptions[0].textContent + '」全部 5 台機器的進度，開始新一輪嗎？')) return;
+    resetBtn.disabled = true;
+    resetBtn.textContent = '重置中…';
+    try {
+        await Promise.all([1,2,3,4,5].map(slot =>
+            setDoc(doc(db, 'liveCompetition', currentGameId + '_slot' + slot), { score: 0, progressLabel: '', progressPct: 0, updatedAt: Date.now() })
+        ));
+    } catch (err) {
+        alert('重置失敗，請檢查網路連線後再試一次：' + err.message);
+    }
+    resetBtn.disabled = false;
+    resetBtn.textContent = '🔄 重置全部，開始新一輪';
+});
+
+watchGame(currentGameId);
+</script>
+</body>
+</html>
