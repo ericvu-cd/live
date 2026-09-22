@@ -816,6 +816,11 @@
   <div class="overlay" id="startOverlay">
    <button type="button" id="startMuteBtn" class="start-mute-btn" aria-label="音效開關" aria-pressed="false">🔊</button>
    <button type="button" id="startHelpBtn" aria-label="遊戲說明" onclick="document.getElementById('helpOverlay').classList.add('show')">📖</button>
+   <button type="button" id="slotIndicatorBtn" onclick="window.reopenSlotPicker()"
+           style="position:absolute; top:calc(10px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:10;
+                  padding:5px 14px; border-radius:14px; border:none; background:rgba(0,0,0,0.45); color:#fff; font-size:12px;">
+     編號：--
+   </button>
    <div class="start-bg-wrap" id="startBgWrap">
     <img src="image/fbbg.png" alt="魚丸追追樂 勇闖海洋冒險" class="start-bg-img" id="startBgImg" draggable="false">
     <button class="start-bg-btn" id="startBtn" aria-label="START"></button>
@@ -2263,6 +2268,7 @@
   // 不會影響底下遊戲本身的任何東西、也不需要碰遊戲原本的開場流程。
   function showSlotPicker() {
     const overlay = document.createElement('div');
+    overlay.id = 'slot-picker-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,20,15,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:"Microsoft JhengHei","PingFang TC",sans-serif;color:#fff;';
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:900;margin-bottom:6px;">這是第幾號機？</div>
@@ -2279,11 +2285,24 @@
         competeSlot = String(i);
         try { localStorage.setItem(SLOT_STORAGE_KEY, competeSlot); } catch {}
         overlay.remove();
+        updateSlotIndicator();
         initCompeteMode();
       };
       btnRow.appendChild(btn);
     }
   }
+
+  // 開場畫面上方那顆小標示，顯示目前記住的編號；點一下可以重新選擇——
+  // 設定平板時如果選錯編號，不用清瀏覽器資料，直接點這裡重選就好。
+  function updateSlotIndicator() {
+    const btn = document.getElementById('slotIndicatorBtn');
+    if (btn) btn.textContent = competeSlot ? ('編號：' + competeSlot + ' 號機（點此重選）') : '尚未設定編號（點此選擇）';
+  }
+  window.reopenSlotPicker = function () {
+    if (document.getElementById('slot-picker-overlay')) return; // 避免手滑連點跳出兩層
+    showSlotPicker();
+  };
+  updateSlotIndicator();
 
   async function initCompeteMode(){
     if (!competeSlot || !/^[1-5]$/.test(competeSlot)) return;
