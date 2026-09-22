@@ -3,18 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<script>
-    /* 桌機/寬螢幕自動導向「手機外框」展示版（fishball-desktop.html），
-       手機直接開（寬度 <=700）完全不受影響、不會跳轉。 */
-    (function() {
-        var params = new URLSearchParams(window.location.search);
-        var inIframe = (window.self !== window.top);
-        if (window.innerWidth > 700 && !inIframe && !params.has('embedded')) {
-            window.location.replace('fishball-desktop.html');
-        }
-    })();
-</script>
-<title>苑港｜魚丸追追樂</title>
+<title>苑港｜魚丸追追樂（現場競賽版）</title>
 <link rel="icon" type="image/png" href="image/fbicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -944,12 +933,11 @@
 
   // 送訊息給平台。targetOrigin 用 '*'：不預先假設平台網址，這則訊息也不含敏感資料，可接受。
   //
-  // ⚠️ 桌機/寬螢幕模式下，這個頁面是被 fishball-desktop.html 用 <iframe> 包起來執行的，
-  // iframe 裡的 window.opener 永遠是 null。就算改成摸 window.top.opener 直接送，也會因為
-  // postMessage 的 event.source 永遠是「實際執行這行程式碼的視窗」（也就是 iframe 自己），
-  // 跟平台記錄的視窗物件對不上而被忽略（6htw 實測踩過這個坑）。正確做法：iframe 只送給
-  // 自己的上一層（window.parent），由 fishball-desktop.html 自己執行 postMessage 轉發給
-  // 平台；沒有套桌機外框時 window.parent 就是 window 自己，效果等同直接送給 window.opener。
+  // ⚠️ 這是「現場競賽版」，不會被套進任何桌機外框 iframe（已經把那段自動導向邏輯拿掉了），
+  // 這裡的 window.self !== window.top 判斷因此永遠是 false，一定是走 window.opener 那條路。
+  // 保留這段判斷邏輯是因為它本身無害、也不影響任何行為——真正需要留意的是這個檔案根本
+  // 不指望有平台可以連（活動當天多半是直接開網址，沒有 window.opener），送不出去就是
+  // 送不出去，程式碼本身已經處理成安靜地不送、不會報錯卡住遊戲。
   function sendToPlatform(type, payload){
     const target = (window.self !== window.top) ? window.parent : window.opener;
     if(!target) return;
