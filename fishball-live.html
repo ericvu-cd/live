@@ -2235,29 +2235,79 @@
      ═══════════════════════════════════════════════════════════════ */
   const GAME_ID = 'fishball'; // 看板下拉選單要選到這款遊戲時，代號要跟這裡一致
   const TOTAL_LEVELS = 10;
-  const competeSlot = new URLSearchParams(location.search).get('slot');
+  const SLOT_STORAGE_KEY = 'fishballLiveSlot'; // 存在這台平板自己的瀏覽器裡，跟其他平板互不影響
+
+  // 優先順序：網址參數 ?slot=N（想手動指定/校正時還是可以用）> 這台平板之前選過、
+  // 記在 localStorage 裡的編號 > 都沒有的話跳出選擇畫面讓人點一次。
+  // 選過一次之後，之後同一台平板重新整理、重開瀏覽器都不用再選，不用每次打網址參數。
+  let competeSlot = new URLSearchParams(location.search).get('slot');
+  if (competeSlot && /^[1-5]$/.test(competeSlot)) {
+    try { localStorage.setItem(SLOT_STORAGE_KEY, competeSlot); } catch {} // 網址帶了就順便記起來
+  } else {
+    competeSlot = null;
+  }
+  if (!competeSlot) {
+    try {
+      const saved = localStorage.getItem(SLOT_STORAGE_KEY);
+      if (saved && /^[1-5]$/.test(saved)) competeSlot = saved;
+    } catch {}
+  }
+
   let competeDocRef = null;
 
-  if (competeSlot && /^[1-5]$/.test(competeSlot)) {
-    (async function initCompeteMode(){
-      const [{ initializeApp }, { getFirestore, doc, setDoc }] = await Promise.all([
-        import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js'),
-        import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js')
-      ]);
-      const app = initializeApp({
-        apiKey: "AIzaSyCkVoePkK_0_yJsDcA_slQVlvZ9KjwxIgU",
-        authDomain: "gamehub-test-cf42d.firebaseapp.com",
-        projectId: "gamehub-test-cf42d",
-        storageBucket: "gamehub-test-cf42d.firebasestorage.app",
-        messagingSenderId: "544673054706",
-        appId: "1:544673054706:web:2500b09a6b4298d981f56b"
-      }, 'competeApp'); // 給一個獨立的 app 名稱，避免萬一同一頁面之後又要接別的 Firebase 用途時互相衝突
-      const db = getFirestore(app);
-      competeDocRef = doc(db, 'liveCompetition', GAME_ID + '_slot' + competeSlot);
-      window._competeSetDoc = setDoc; // 存起來給下面 reportCompeteProgress 用，避免整個檔案到處重複 import
-      console.log('[競賽模式] 已啟用，回報位置：liveCompetition/' + GAME_ID + '_slot' + competeSlot);
-    })();
+  if (!competeSlot) {
+    showSlotPicker();
   }
+
+  // 開場選機台編號的畫面：純粹疊在畫面最上層的一個小遮罩，選完就消失，
+  // 不會影響底下遊戲本身的任何東西、也不需要碰遊戲原本的開場流程。
+  function showSlotPicker() {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,20,15,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:"Microsoft JhengHei","PingFang TC",sans-serif;color:#fff;';
+    overlay.innerHTML = `
+      <div style="font-size:1.1rem;font-weight:900;margin-bottom:6px;">這是第幾號機？</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;padding:0 20px;" id="slot-picker-btns"></div>
+      <div style="font-size:0.75rem;opacity:0.6;margin-top:10px;">選過一次之後，這台平板之後都會自動記得，不用再選</div>
+    `;
+    document.body.appendChild(overlay);
+    const btnRow = overlay.querySelector('#slot-picker-btns');
+    for (let i = 1; i <= 5; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = i + ' 號機';
+      btn.style.cssText = 'padding:16px 22px;border-radius:14px;border:none;background:#e8a33d;color:#1c2a2e;font-weight:900;font-size:1rem;cursor:pointer;';
+      btn.onclick = () => {
+        competeSlot = String(i);
+        try { localStorage.setItem(SLOT_STORAGE_KEY, competeSlot); } catch {}
+        overlay.remove();
+        initCompeteMode();
+      };
+      btnRow.appendChild(btn);
+    }
+  }
+
+  async function initCompeteMode(){
+    if (!competeSlot || !/^[1-5]$/.test(competeSlot)) return;
+    const [{ initializeApp }, { getFirestore, doc, setDoc }] = await Promise.all([
+      import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js'),
+      import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js')
+    ]);
+    const app = initializeApp({
+      apiKey: "AIzaSyCkVoePkK_0_yJsDcA_slQVlvZ9KjwxIgU",
+      authDomain: "gamehub-test-cf42d.firebaseapp.com",
+      projectId: "gamehub-test-cf42d",
+      storageBucket: "gamehub-test-cf42d.firebasestorage.app",
+      messagingSenderId: "544673054706",
+      appId: "1:544673054706:web:2500b09a6b4298d981f56b"
+    }, 'competeApp'); // 給一個獨立的 app 名稱，避免萬一同一頁面之後又要接別的 Firebase 用途時互相衝突
+    const db = getFirestore(app);
+    competeDocRef = doc(db, 'liveCompetition', GAME_ID + '_slot' + competeSlot);
+    window._competeSetDoc = setDoc; // 存起來給下面 reportCompeteProgress 用，避免整個檔案到處重複 import
+    console.log('[競賽模式] 已啟用，回報位置：liveCompetition/' + GAME_ID + '_slot' + competeSlot);
+  }
+
+  // 已經知道編號（網址帶了、或這台平板之前選過存在 localStorage 裡）就直接啟用；
+  // 不知道的話上面 showSlotPicker() 已經跳出選擇畫面了，選完會自己呼叫這個函式。
+  if (competeSlot) initCompeteMode();
 
   // 過關/開始時呼叫，把「目前分數＋進度說明文字」寫進去；失敗不影響已寫入的進度
   // （大螢幕看到的就是「這台平板目前最新的進度與分數」）。
@@ -2661,7 +2711,7 @@
       reportHtml+
       buildKnowledgeBlock();
     restartBtn.style.display = 'none';
-    playAgainBtn.style.display = '';
+    playAgainBtn.style.display = 'none'; // 競賽版不給玩家自己重玩，一輪只能玩一次，公平比較
     backToInstructionsBtn.style.display = '';
     endOverlay.classList.remove('hidden');
     initLoreCarousel();
@@ -2770,7 +2820,7 @@
         : `<div class="end-reason">準備好前往第 ${currentLevel+1} 關：${LEVELS[currentLevel].name}</div>`);
     if(isFinal){
       restartBtn.style.display = 'none';
-      playAgainBtn.style.display = '';
+      playAgainBtn.style.display = 'none'; // 競賽版不給玩家自己重玩，一輪只能玩一次，公平比較
       backToInstructionsBtn.style.display = '';
       initLoreCarousel();
     } else {
