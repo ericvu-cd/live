@@ -2330,12 +2330,14 @@
 
   // 過關/開始時呼叫，把「目前分數＋進度說明文字」寫進去；失敗不影響已寫入的進度
   // （大螢幕看到的就是「這台平板目前最新的進度與分數」）。
-  function reportCompeteProgress(level, score) {
+  function reportCompeteProgress(level, score, finished) {
     if (!competeDocRef || !window._competeSetDoc) return; // 沒開競賽模式，什麼都不做
     window._competeSetDoc(competeDocRef, {
       score,
       progressLabel: `第 ${level} / ${TOTAL_LEVELS} 關`,
       progressPct: Math.min(100, Math.round((level / TOTAL_LEVELS) * 100)),
+      started: true,   // 只要有回報過一次，就代表這台已經開始了，看板用這個判斷「準備開始」vs「進行中」
+      finished: !!finished, // 全破或失敗才是true，看板用這個判斷「進行中」vs「結束了」
       updatedAt: Date.now()
     }).catch(function(err){
       console.warn('[競賽模式] 回報失敗（不影響玩家本身遊戲進行）', err);
@@ -2704,7 +2706,7 @@
     clearInterval(timerId);
     SFX.ambientStop();
     totalScore += score;
-    reportCompeteProgress(Math.max(0, currentLevel - 1), totalScore); // 死在這關代表沒有真的過這關，回報「已確定過關」的關數
+    reportCompeteProgress(Math.max(0, currentLevel - 1), totalScore, true); // 死在這關代表沒有真的過這關，回報「已確定過關」的關數；失敗也是「真正結束」
 
     let iconKey = 'lantern', title = '收網了';
     if(reason.includes('潮水')){ iconKey = 'wave'; title = '被潮水追上了'; }
@@ -2814,9 +2816,9 @@
     clearInterval(timerId);
     SFX.ambientStop();
     totalScore += score;
-    reportCompeteProgress(currentLevel, totalScore); // 回報「剛過完的這一關」與最新累計分數給大螢幕
 
     const isFinal = currentLevel >= LEVELS.length;
+    reportCompeteProgress(currentLevel, totalScore, isFinal); // 回報「剛過完的這一關」與最新累計分數給大螢幕；isFinal(全破)才算真正結束
     SFX.win(); vibrate([30,50,30,50,90]);
     endEmojiImg.src = ICONS.trophy;
     endTitle.textContent = isFinal ? '滿載而歸！十關全破！' : `第 ${currentLevel} 關過關！`;
@@ -3426,7 +3428,7 @@
     endOverlay.classList.add('hidden');
     swipeHint.style.display = 'block';
     draw(); // 手動畫一次，讓畫面先看得到蛇跟食物在哪，不是空白畫面
-    if (withCountdown) reportCompeteProgress(0, 0); // 真正重新開始時歸零，換下一批人上場自然就會蓋掉上一輪的資料
+    if (withCountdown) reportCompeteProgress(0, 0, false); // 真正重新開始時歸零，換下一批人上場自然就會蓋掉上一輪的資料
     if (withCountdown) runCountdownThenBegin();
     else beginMotion();
   }

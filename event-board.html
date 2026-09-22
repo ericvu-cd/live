@@ -41,13 +41,24 @@
     .slot-card {
         background: var(--panel); border-radius: 18px; border: 1px solid var(--line);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 20px 14px; position: relative; transition: transform 0.4s ease, box-shadow 0.4s ease;
+        padding: 20px 14px; position: relative; transition: transform 0.4s ease, box-shadow 0.4s ease, background 0.5s ease, border-color 0.5s ease;
     }
+    /* 三種狀態的背景色：準備開始（灰色系，還沒人碰）／進行中（原本的深藍底色，
+       維持跟其他畫面一致的活躍感）／結束了（綠色系，表示這一局已經塵埃落定）。 */
+    .slot-card.state-ready    { background: #3a3f42; border-color: rgba(255,255,255,0.12); }
+    .slot-card.state-playing  { background: var(--panel); }
+    .slot-card.state-finished { background: #1f4a3a; border-color: rgba(111,174,124,0.4); }
+
     .slot-card.leading { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(232,163,61,0.5), 0 8px 24px rgba(0,0,0,0.4); transform: scale(1.03); }
+    .crown-badge { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); font-size: 1.8rem; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5)); }
     .slot-label { font-size: 0.95rem; color: var(--ink-dim); margin-bottom: 10px; }
     .slot-score { font-size: 2.6rem; line-height: 1; color: var(--gold); margin-bottom: 6px; }
     .slot-score-unit { font-size: 0.85rem; color: var(--ink-dim); margin-bottom: 16px; }
     .slot-progress-text { font-size: 0.85rem; color: var(--ink-dim); margin-bottom: 8px; }
+    .slot-state-tag { font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-bottom: 10px; }
+    .slot-state-tag.state-ready    { background: rgba(255,255,255,0.1); color: var(--ink-dim); }
+    .slot-state-tag.state-playing  { background: rgba(111,174,124,0.25); color: #a8e6b8; }
+    .slot-state-tag.state-finished { background: rgba(111,174,124,0.3); color: #a8e6b8; }
     .slot-bar-track { width: 100%; height: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden; }
     .slot-bar-fill { height: 100%; background: linear-gradient(90deg, #6fae7c, var(--gold)); transition: width 0.6s ease; }
     .slot-empty { color: var(--ink-dim); font-size: 0.85rem; }
@@ -119,7 +130,7 @@ function buildGrid() {
     gridEl.innerHTML = '';
     for (let slot = 1; slot <= 5; slot++) {
         const card = document.createElement('div');
-        card.className = 'slot-card';
+        card.className = 'slot-card state-ready';
         card.id = 'slot-' + slot;
         card.innerHTML = `<div class="slot-label">${slot} 號機</div><div class="slot-empty">尚未開始</div>`;
         gridEl.appendChild(card);
@@ -146,16 +157,23 @@ function watchGame(gameId) {
 
 function renderSlot(slot, data) {
     const card = document.getElementById('slot-' + slot);
-    if (!data) {
+    card.classList.remove('state-ready', 'state-playing', 'state-finished');
+    if (!data || !data.started) {
+        card.classList.add('state-ready');
         card.innerHTML = `<div class="slot-label">${slot} 號機</div><div class="slot-empty">尚未開始</div>`;
         return;
     }
+    const state = data.finished ? 'finished' : 'playing';
+    const stateLabel = data.finished ? '✅ 結束了' : '🎮 進行中';
+    card.classList.add('state-' + state);
+
     const barHtml = (typeof data.progressPct === 'number')
         ? `<div class="slot-bar-track"><div class="slot-bar-fill" style="width:${Math.min(100, data.progressPct)}%;"></div></div>`
         : '';
     const prevScore = card.dataset.lastScore ? Number(card.dataset.lastScore) : null;
     card.innerHTML = `
         <div class="slot-label">${slot} 號機</div>
+        <div class="slot-state-tag state-${state}">${stateLabel}</div>
         <div class="slot-score num">${data.score ?? 0}</div>
         <div class="slot-score-unit">分</div>
         <div class="slot-progress-text">${data.progressLabel || ''}</div>
@@ -169,16 +187,27 @@ function renderSlot(slot, data) {
     card.dataset.lastScore = data.score ?? 0;
 }
 
-// 目前分數最高的那台機器，卡片加金色外框凸顯出來
+// 目前分數最高的那台機器，卡片加金色外框 + 皇冠圖示凸顯出來。
+// 只有「已經開始」的機器才算進來比較，還沒開始的（score恆為0）不該被誤判成領先。
 function renderLeader() {
     let leaderSlot = null, maxScore = -1;
     for (let slot = 1; slot <= 5; slot++) {
         const d = slotData[slot];
-        const s = d ? (d.score ?? 0) : -1;
-        if (d && s > maxScore) { maxScore = s; leaderSlot = slot; }
+        if (d && d.started && (d.score ?? 0) > maxScore) { maxScore = d.score ?? 0; leaderSlot = slot; }
     }
     for (let slot = 1; slot <= 5; slot++) {
-        document.getElementById('slot-' + slot).classList.toggle('leading', slot === leaderSlot && maxScore > 0);
+        const card = document.getElementById('slot-' + slot);
+        const isLeader = (slot === leaderSlot && maxScore > 0);
+        card.classList.toggle('leading', isLeader);
+        const existingCrown = card.querySelector('.crown-badge');
+        if (isLeader && !existingCrown) {
+            const crown = document.createElement('div');
+            crown.className = 'crown-badge';
+            crown.textContent = '👑';
+            card.appendChild(crown);
+        } else if (!isLeader && existingCrown) {
+            existingCrown.remove();
+        }
     }
 }
 
@@ -197,7 +226,7 @@ resetBtn.addEventListener('click', async () => {
     resetBtn.textContent = '重置中…';
     try {
         await Promise.all([1,2,3,4,5].map(slot =>
-            setDoc(doc(db, 'liveCompetition', currentGameId + '_slot' + slot), { score: 0, progressLabel: '', progressPct: 0, updatedAt: Date.now() })
+            setDoc(doc(db, 'liveCompetition', currentGameId + '_slot' + slot), { score: 0, progressLabel: '', progressPct: 0, started: false, finished: false, updatedAt: Date.now() })
         ));
     } catch (err) {
         alert('重置失敗，請檢查網路連線後再試一次：' + err.message);
