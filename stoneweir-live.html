@@ -1496,6 +1496,11 @@ function switchScreen(id){
   // 說明按鈕：只在介紹頁出現，不需要在遊戲進行中或結算頁顯示
   const helpBtn = document.getElementById('helpBtn');
   if(helpBtn) helpBtn.style.display = (id === 'screen-intro') ? '' : 'none';
+
+  // 機台編號標示：只在介紹頁出現，遊戲開始後不該再讓人改機號（改了會讓看板的
+  // 資料跟實際玩家對不上），結算頁也不需要顯示。
+  const slotBtn = document.getElementById('slotIndicatorBtn');
+  if(slotBtn) slotBtn.style.display = (id === 'screen-intro') ? '' : 'none';
   
   // 如果切換到介紹頁面，更新統計顯示
   if(id === 'screen-intro'){
